@@ -3,6 +3,7 @@ const socket = new WebSocket("ws://localhost:9001");
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-button");
 const chatWindow = document.getElementById("chat-window");
+const userList = document.getElementById('user-list');
 let username = "";
 
 document.getElementById('login-button').addEventListener('click', function() {
@@ -40,6 +41,30 @@ function addMessage(user, message){
     chatWindow.appendChild(messageDiv);
 }
 
+function user_move_message(username, joined = true) {
+    // Show join message
+    const joinMessage = document.createElement('div');
+    joinMessage.className = 'message join-message';
+    if (joined) {
+        joinMessage.textContent = `${username} joined the chat`;
+    } else {
+        joinMessage.textContent = `${username} left the chat`;
+    }
+    chatWindow.appendChild(joinMessage);
+}
+
+function render_lobby(users) {
+    //Clear lobby
+    userList.innerHTML = "";
+
+    for (let user of users) {
+        // Add user to user list
+        const userItem = document.createElement('li');
+        userItem.textContent = user;
+        userList.appendChild(userItem);
+    }
+}
+
 
 sendBtn.onclick = () => {
     const message = messageInput.value;
@@ -58,9 +83,19 @@ socket.addEventListener("message", (event) => {
     console.log("Message from server ", event.data);
     const parts = event.data.split(":");
     const user = parts[0];
-    const message = parts[1].trim();
-
-    addMessage(user, message);
+    if (user == "login") {
+        user_move_message(parts[1], true);
+        render_lobby(parts[2].split(","));
+    } else if (user == "logout") {
+        user_move_message(parts[1], false);
+        render_lobby(parts[2].split(","));
+    } else if (user == "lobby") {
+        render_lobby(parts[1].split(","));
+    } else {
+        const message = parts[1].trim();
+    
+        addMessage(user, message);
+    }
 });
 console.log("[1]");
 

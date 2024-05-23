@@ -19,15 +19,24 @@
             <header class="chat-header">
                 <h1>Chat App</h1>
             </header>
-            <main class="chat-window" id="chat-window">
-                <!-- Messages will appear here -->
-                <div class="message">
-                    <span class="user">User1:</span> Hello, how are you?
-                </div>
-                <div class="message">
-                    <span class="user">User2:</span> I'm good, thanks! How about you?
-                </div>
-            </main>
+            <div class="chat-body">
+                <aside class="user-list">
+                    <h2>Users in Lobby</h2>
+                    <ul id="user-list">
+                        <!-- User list items will be added here -->
+                    </ul>
+                </aside>
+                <main class="chat-window" id="chat-window">
+                    <!-- Messages will appear here -->
+                    <div class="message join-message">User1 joined the chat</div>
+                    <div class="message">
+                        <span class="user">User1:</span> Hello, how are you?
+                    </div>
+                    <div class="message">
+                        <span class="user">User2:</span> I'm good, thanks! How about you?
+                    </div>
+                </main>
+            </div>
             <footer class="chat-input">
                 <input type="text" id="message-input" placeholder="Type a message...">
                 <button id="send-button">Send</button>
