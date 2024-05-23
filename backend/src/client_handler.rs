@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc;
 use std::net::SocketAddr;
@@ -13,72 +14,77 @@ use crate::{PeerMap, Event};
 use crate::user::{User, build_user};
 
 fn get_logged_in_users_str(users: Vec<User>) -> String {
-    let mut output = String::new();
-    for user in users {
-        output += user.get_name();
-    }
-    output
+    String::from(users.iter().map(|u| u.get_name().clone()).collect::<Vec<String>>().join(","))
 }
-
 
 fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Message>, other_client_messages_rx: Receiver<Event>) {
     for event in other_client_messages_rx {
+        let future;
         match event {
             Event::ClientMessage((username, message)) => {
-                let future = tx.send(Message::text(format!("{}: {}", username, message.to_string())));
+                future = tx.send(Message::text(format!("{}: {}", username, message.to_string())));
                 println!("Sending {message}");
-                futures::executor::block_on(future).unwrap();
             },
             Event::ClientLogin((username, users)) => {
-                let future = tx.send(Message::text(format!("login:{}:{}", username, get_logged_in_users_str(users))));
+                future = tx.send(Message::text(format!("login:{}:{}", username, get_logged_in_users_str(users))));
                 println!("Sending login by {username}");
-                futures::executor::block_on(future).unwrap();
+            },
+            Event::ClientLogout((username, users)) => {
+                future = tx.send(Message::text(format!("logout:{}:{}", username, get_logged_in_users_str(users))));
+                println!("Sending logout by {username}");
+            },
+            Event::LobbyState(users) => {
+                println!("Sending lobby state with {} users", users.len());
+                future = tx.send(Message::text(format!("lobby:{}", get_logged_in_users_str(users))));
             }
         }
+        futures::executor::block_on(future).unwrap();
     }
 }
 
 fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: PeerMap, my_addr: SocketAddr) {
-    
+    let mut my_name = String::new();
     let future = rx.for_each(|message| {
         let message = message.unwrap();
+        println!("Message: {message:?}");
         if message.is_text() {
-            println!("Message: {message:?}");
 
             //Convert the message from a Message to a str ref
             let text = message.to_text().unwrap();
             let event: Event;
-            
-            //Lock the current state
-            let s = state.lock().unwrap();
 
-            //Get ref to my user
-            let me = s.get(&my_addr).unwrap();
-
-            //Send to everyone but my user
-            let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != *me.get_addr()).collect();
             if text.starts_with("user:") {
+                println!("ClientLogin branch");
+
                 //Lock the current state
                 let mut s = state.lock().unwrap();
-
+                        
                 //Get the username from the message
                 let username = text.split_once(":").unwrap().1;
+                println!("User login: {username}"); 
 
                 //Get ref to my user
                 let me = s.get_mut(&my_addr).unwrap();
 
                 //Create username string and set for current user
-                let username = String::from(username);
-                me.set_name(username.clone());
+                my_name = String::from(username);
+                me.set_name(my_name.clone());
 
-                event = Event::ClientLogin((username, s.values().cloned().collect::<Vec<_>>()));
+                let sender = me.get_tx().clone();
+                sender.send(Event::LobbyState(s.values().cloned().collect::<Vec<_>>())).unwrap();
+
+                event = Event::ClientLogin((my_name.clone(), s.values().cloned().collect::<Vec<_>>()));
             } else {
-                event = Event::ClientMessage((me.get_name().to_string(), message.clone()));
+                println!("ClientMessage branch");
+                event = Event::ClientMessage((my_name.clone(), message.clone()));
             }
+
             //Perform the sending
+            let s = state.lock().unwrap();
+            //Send to everyone but my user
+            let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != my_addr).collect();
+            println!("Sending {event:?} to {} people", keys_to_send.len());
             for key in keys_to_send {
-                let key_text = key.to_string();
-                println!("Sending to {key_text}");
                 s.get(key).unwrap().get_tx().send(event.clone()).unwrap();
             }
         }
@@ -93,6 +99,10 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
         username = user.get_name().clone();
     }
     s.remove(&my_addr);
+
+    for value in s.values() {
+        value.get_tx().send(Event::ClientLogout((username.clone(), s.values().cloned().collect::<Vec<_>>()))).unwrap();
+    }
 
     println!("Done reading messages, dropped {username}");
 }

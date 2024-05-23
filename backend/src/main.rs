@@ -8,11 +8,13 @@ use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use user::User;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Event {
     ClientMessage((String, Message)),
     //ClientLogin contains the name of the user that logged in, as well as the current state of the lobby
     ClientLogin((String, Vec<User>)),
+    ClientLogout((String, Vec<User>)),
+    LobbyState(Vec<User>),
 }
 
 // type PeerMap<'a> = Arc<Mutex<HashMap<SocketAddr, User<'a>>>>;
@@ -35,7 +37,16 @@ async fn main() -> Result<(), IoError> {
 
     // Let's spawn the handling of each connection in a separate task.
     while let Ok((stream, addr)) = listener.accept().await {
+        println!("New connection, state size: {}", state.lock().unwrap().len());
+        for user in state.lock().unwrap().values() {
+            print!("{}, ", user.get_name());
+        }
+        println!();
         tokio::spawn(client_handler::handle_client(state.clone(), stream, addr));
+        for user in state.lock().unwrap().values() {
+            print!("{}, ", user.get_name());
+        }
+        println!("Added connection, state size: {}", state.lock().unwrap().len());
     }
 
     Ok(())

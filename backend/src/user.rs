@@ -3,7 +3,7 @@ use std::sync::mpsc::Sender;
 
 use crate::Event;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct User {
     addr: SocketAddr,
     name: String,
