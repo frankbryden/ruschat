@@ -26,7 +26,7 @@ mod user;
 
 #[tokio::main]
 async fn main() -> Result<(), IoError> {
-    let addr = "127.0.0.1:9001".to_string();
+    let addr = "0.0.0.0:9001".to_string();
 
     let state = PeerMap::new(Mutex::new(HashMap::new()));
 

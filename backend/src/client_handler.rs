@@ -3,7 +3,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::mpsc;
 use std::net::SocketAddr;
 use futures_util::stream::{SplitSink, SplitStream};
-use futures;
+use futures::{self, future};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use futures_util::{SinkExt, StreamExt};
@@ -45,7 +45,12 @@ fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Me
 fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: PeerMap, my_addr: SocketAddr) {
     let mut my_name = String::new();
     let future = rx.for_each(|message| {
-        let message = message.unwrap();
+        let message = match message {
+            Ok(m) => m,
+            Err(e) => {
+                panic!("Failed to read message: {e}");
+            }
+        };
         println!("Message: {message:?}");
         if message.is_text() {
 
