@@ -1,18 +1,45 @@
 // Create WebSocket connection.
 const socket = new WebSocket("ws://localhost:9001");
+const usernameInput = document.getElementById('username');
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-button");
 const chatWindow = document.getElementById("chat-window");
 const userList = document.getElementById('user-list');
 let username = "";
 
-document.getElementById('login-button').addEventListener('click', function() {
-    username = document.getElementById('username').value.trim();
+function login() {
+    username = usernameInput.value.trim();
     if (username) {
         document.querySelector('.login-view').classList.remove('active');
         document.querySelector('.chat-view').classList.add('active');
         socket.send(`user:${username}`);
     }
+}
+
+function sendMessage() {
+    const message = messageInput.value;
+    if (message.length > 0) {
+        console.log(`sending ${message}`);
+        messageInput.value = "";
+        addMessage(username, message);
+        socket.send(message);
+    }
+}
+
+messageInput.onkeydown = event => {
+    if (event.key == "Enter") {
+        sendMessage();
+    }
+};
+
+usernameInput.onkeydown = event => {
+    if (event.key == "Enter") {
+        login();
+    }
+};
+
+document.getElementById('login-button').addEventListener('click', function() {
+    login();
 });
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -67,11 +94,7 @@ function render_lobby(users) {
 
 
 sendBtn.onclick = () => {
-    const message = messageInput.value;
-    console.log(`sending ${message}`);
-    messageInput.value = "";
-    addMessage(username, message);
-    socket.send(message);
+    sendMessage();
 }
 console.log("[0]");
 // Connection opened
