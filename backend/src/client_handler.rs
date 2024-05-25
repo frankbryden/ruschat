@@ -36,7 +36,11 @@ fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Me
             Event::LobbyState(users) => {
                 println!("Sending lobby state with {} users", users.len());
                 future = tx.send(Message::text(format!("lobby:{}", get_logged_in_users_str(users))));
-            }
+            },
+            Event::Typing(users) => {
+                println!("Currently got {} users typing", users.len());
+                future = tx.send(Message::text(format!("typing:{}", get_logged_in_users_str(users))));
+            },
         }
         futures::executor::block_on(future).unwrap();
     }
@@ -79,6 +83,21 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 sender.send(Event::LobbyState(s.values().cloned().collect::<Vec<_>>())).unwrap();
 
                 event = Event::ClientLogin((my_name.clone(), s.values().cloned().collect::<Vec<_>>()));
+            } else if text.starts_with("typing:") {
+                //Lock the current state
+                let mut s = state.lock().unwrap();
+
+                //Get our user to mutate it
+                let me = s.get_mut(&my_addr).unwrap();
+
+                let typing_state_change = text.split_once(":").unwrap().1;
+                match typing_state_change {
+                    "start" => me.start_typing(),
+                    "stop" => me.stop_typing(),
+                    _ => panic!("Invalid typing state change: {typing_state_change}"),
+                };
+
+                event = Event::Typing(s.values().cloned().filter(|u| u.is_typing()).collect::<Vec<_>>());
             } else {
                 println!("ClientMessage branch");
                 event = Event::ClientMessage((my_name.clone(), message.clone()));

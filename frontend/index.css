@@ -114,6 +114,13 @@ body {
     font-style: italic;
 }
 
+.typing-status {
+    padding: 0.5rem 1rem;
+    color: #666;
+    font-style: italic;
+    height: 20px; /* To reserve space */
+}
+
 .chat-input {
     display: flex;
     padding: 1rem;

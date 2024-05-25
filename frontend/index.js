@@ -5,7 +5,11 @@ const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-button");
 const chatWindow = document.getElementById("chat-window");
 const userList = document.getElementById('user-list');
+const typingStatusDiv = document.getElementById('typing-status');
 let username = "";
+let typingTimeout = null;
+
+const CLEAR_USER_TYPING_DELAY_MS = 1000;
 
 function login() {
     username = usernameInput.value.trim();
@@ -29,6 +33,10 @@ function sendMessage() {
 messageInput.onkeydown = event => {
     if (event.key == "Enter") {
         sendMessage();
+        clearTimeout(typingTimeout);
+        clearUserTyping();
+    } else {
+        userTyping();
     }
 };
 
@@ -80,6 +88,16 @@ function user_move_message(username, joined = true) {
     chatWindow.appendChild(joinMessage);
 }
 
+function user_typing_status(typingUsers) {
+    if (typingUsers.length > 1) {
+        typingStatusDiv.textContent = `${typingUsers.join(", ")} are typing...`;
+    } else if (typingUsers.length == 1 && typingUsers[0].length > 0) {
+        typingStatusDiv.textContent = `${typingUsers[0]} is typing...`;
+    } else {
+        typingStatusDiv.textContent = "";
+    }
+}
+
 function render_lobby(users) {
     //Clear lobby
     userList.innerHTML = "";
@@ -90,6 +108,21 @@ function render_lobby(users) {
         userItem.textContent = user;
         userList.appendChild(userItem);
     }
+}
+
+function userTyping() {
+    if (typingTimeout) {
+        clearTimeout(typingTimeout);
+    }
+    typingTimeout = setTimeout(clearUserTyping, CLEAR_USER_TYPING_DELAY_MS);
+    socket.send("typing:start");
+}
+
+/**
+ * Clear the current "user is typing status"
+ */
+function clearUserTyping() {
+    socket.send("typing:stop");
 }
 
 
@@ -114,6 +147,8 @@ socket.addEventListener("message", (event) => {
         render_lobby(parts[2].split(","));
     } else if (user == "lobby") {
         render_lobby(parts[1].split(","));
+    } else if (user == "typing") {
+        user_typing_status(parts[1].split(","));
     } else {
         const message = parts[1].trim();
     

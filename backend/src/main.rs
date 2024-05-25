@@ -15,6 +15,7 @@ pub enum Event {
     ClientLogin((String, Vec<User>)),
     ClientLogout((String, Vec<User>)),
     LobbyState(Vec<User>),
+    Typing(Vec<User>),
 }
 
 // type PeerMap<'a> = Arc<Mutex<HashMap<SocketAddr, User<'a>>>>;

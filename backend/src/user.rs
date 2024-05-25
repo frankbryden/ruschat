@@ -29,12 +29,16 @@ impl User {
         &self.name
     }
 
-    fn start_typing(&mut self) {
+    pub fn start_typing(&mut self) {
         self.is_typing = true;
     }
     
-    fn stop_typing(&mut self) {
+    pub fn stop_typing(&mut self) {
         self.is_typing = false;
+    }
+
+    pub fn is_typing(&self) -> bool {
+        self.is_typing
     }
 
     pub fn get_addr(&self) -> &SocketAddr {
