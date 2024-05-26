@@ -11,7 +11,14 @@ env:
 
 jobs:
   build:
+    runs-on: ubuntu-20.04
 
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cd backend && cargo build --release
+
+  deploy:
     runs-on: ubuntu-20.04
 
     steps:
@@ -24,7 +31,7 @@ jobs:
         HOST: 94.130.225.18
         KEY: ${{secrets.DEPLOY_SSH_KEY}}
         SOURCE: ./backend/target/release/backend
-        TARGET: /data/ruschat
+        TARGET: /data/ruschat/backend
     - name: Rsync Frontend
       uses: up9cloud/action-rsync@master
       env:
