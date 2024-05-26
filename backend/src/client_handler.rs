@@ -1,20 +1,25 @@
-use std::borrow::Borrow;
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc;
 use std::net::SocketAddr;
 use futures_util::stream::{SplitSink, SplitStream};
-use futures::{self, future};
+use futures::{self};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::WebSocketStream;
 use std::thread::spawn;
 
-use crate::{PeerMap, Event};
+use crate::{Event, PeerMap};
 use crate::user::{User, build_user};
 
-fn get_logged_in_users_str(users: Vec<User>) -> String {
-    String::from(users.iter().map(|u| u.get_name().clone()).collect::<Vec<String>>().join(","))
+const USER_SEPARATOR: &str = "&";
+
+fn get_users_str_from_vec(users: Vec<User>) -> String {
+    String::from(users.iter().map(|u| u.get_name().clone()).collect::<Vec<String>>().join(USER_SEPARATOR))
+}
+
+fn get_users_str_from_vec_with_images(users: Vec<User>) -> String {
+    String::from(users.iter().map(|u| u.get_name().clone() + "#" + &u.get_profile_pic().clone().unwrap_or_default()).collect::<Vec<String>>().join(USER_SEPARATOR))
 }
 
 fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Message>, other_client_messages_rx: Receiver<Event>) {
@@ -26,20 +31,20 @@ fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Me
                 println!("Sending {message}");
             },
             Event::ClientLogin((username, users)) => {
-                future = tx.send(Message::text(format!("login:{}:{}", username, get_logged_in_users_str(users))));
+                future = tx.send(Message::text(format!("login:{}:{}", username, get_users_str_from_vec_with_images(users))));
                 println!("Sending login by {username}");
             },
             Event::ClientLogout((username, users)) => {
-                future = tx.send(Message::text(format!("logout:{}:{}", username, get_logged_in_users_str(users))));
+                future = tx.send(Message::text(format!("logout:{}:{}", username, get_users_str_from_vec(users))));
                 println!("Sending logout by {username}");
             },
             Event::LobbyState(users) => {
                 println!("Sending lobby state with {} users", users.len());
-                future = tx.send(Message::text(format!("lobby:{}", get_logged_in_users_str(users))));
+                future = tx.send(Message::text(format!("lobby:{}", get_users_str_from_vec_with_images(users))));
             },
             Event::Typing(users) => {
                 println!("Currently got {} users typing", users.len());
-                future = tx.send(Message::text(format!("typing:{}", get_logged_in_users_str(users))));
+                future = tx.send(Message::text(format!("typing:{}", get_users_str_from_vec(users))));
             },
         }
         futures::executor::block_on(future).unwrap();
@@ -55,7 +60,6 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 panic!("Failed to read message: {e}");
             }
         };
-        println!("Message: {message:?}");
         if message.is_text() {
 
             //Convert the message from a Message to a str ref
@@ -69,8 +73,9 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 let mut s = state.lock().unwrap();
                         
                 //Get the username from the message
-                let username = text.split_once(":").unwrap().1;
-                println!("User login: {username}"); 
+                let user_info = text.split_once(":").unwrap().1;
+                let (username, profile_pic) = user_info.split_once("#").unwrap();
+                println!("User login: {username}");
 
                 //Get ref to my user
                 let me = s.get_mut(&my_addr).unwrap();
@@ -78,11 +83,13 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 //Create username string and set for current user
                 my_name = String::from(username);
                 me.set_name(my_name.clone());
+                me.set_profile_pic(String::from(profile_pic));
+                me.login();
 
                 let sender = me.get_tx().clone();
-                sender.send(Event::LobbyState(s.values().cloned().collect::<Vec<_>>())).unwrap();
+                sender.send(Event::LobbyState(s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())).unwrap();
 
-                event = Event::ClientLogin((my_name.clone(), s.values().cloned().collect::<Vec<_>>()));
+                event = Event::ClientLogin((my_name.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>()));
             } else if text.starts_with("typing:") {
                 //Lock the current state
                 let mut s = state.lock().unwrap();
@@ -107,7 +114,6 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
             let s = state.lock().unwrap();
             //Send to everyone but my user
             let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != my_addr).collect();
-            println!("Sending {event:?} to {} people", keys_to_send.len());
             for key in keys_to_send {
                 s.get(key).unwrap().get_tx().send(event.clone()).unwrap();
             }
@@ -123,9 +129,10 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
         username = user.get_name().clone();
     }
     s.remove(&my_addr);
-
-    for value in s.values() {
-        value.get_tx().send(Event::ClientLogout((username.clone(), s.values().cloned().collect::<Vec<_>>()))).unwrap();
+    if username.len() > 0 {
+        for value in s.values() {
+            value.get_tx().send(Event::ClientLogout((username.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>()))).unwrap();
+        }
     }
 
     println!("Done reading messages, dropped {username}");

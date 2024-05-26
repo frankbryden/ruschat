@@ -5,12 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat App</title>
     <link rel="stylesheet" href="index.css">
+    <script src="utils.js"></script>
 </head>
 <body>
     <div class="view login-view">
         <div class="login-container">
             <h1>Login</h1>
             <input type="text" id="username" placeholder="Enter your username">
+            <label for="profile-picture" class="custom-file-upload">
+                Upload Profile Picture
+            </label>
+            <input type="file" id="profile-picture" accept="image/*">
+            <img id="profile-pic-img" />
             <button id="login-button">Login</button>
         </div>
     </div>
