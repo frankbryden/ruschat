@@ -1,0 +1,34 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cd backend && cargo build --release
+    - name: Rsync Backend
+      uses: up9cloud/action-rsync@master
+      env:
+        HOST: 94.130.225.18
+        KEY: ${{secrets.DEPLOY_SSH_KEY}}
+        SOURCE: ./backend/target/release/backend
+        TARGET: /data/ruschat
+    - name: Rsync Frontend
+      uses: up9cloud/action-rsync@master
+      env:
+        HOST: 94.130.225.18
+        KEY: ${{secrets.DEPLOY_SSH_KEY}}
+        SOURCE: ./frontend
+        TARGET: /data/ruschat
