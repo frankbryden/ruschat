@@ -102,6 +102,9 @@ function addMessage(user, message){
 
     // Add the result to the chat window
     chatWindow.appendChild(messageDiv);
+
+    // Scroll chat view to the bottom, so users can see new messages as they arrive
+    scrollToBottom();
 }
 
 function user_move_message(username, joined = true) {
@@ -126,11 +129,13 @@ function user_typing_status(typingUsers) {
     }
 }
 
+function scrollToBottom() {
+    chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
 async function ingest_images(users) {
     let usernames = [];
-    console.log(users);
     for (let user of users) {
-        console.log(user);
         let parts = user.split("#");
         let username = parts[0];
         usernames.push(username);
@@ -139,8 +144,6 @@ async function ingest_images(users) {
             const blob = await construct_blob_from_b64(image);
             const url = URL.createObjectURL(blob);
             imagesMapping.set(username, url);
-        } else {
-            console.log(`User ${username} has no pic`);
         }
     }
     return usernames;
@@ -183,10 +186,8 @@ socket.addEventListener("open", (event) => {
 
 // Listen for messages
 socket.addEventListener("message", async (event) => {
-    console.log(event.data);
     const parts = event.data.split(":");
     const user = parts[0];
-    console.log("Message from server ", user);
     if (user == "login") {
         const users_data = parts.slice(2).join(":").split(USER_SEPARATOR);
         user_move_message(parts[1], true);
@@ -205,7 +206,6 @@ socket.addEventListener("message", async (event) => {
         user_typing_status(parts[1].split(USER_SEPARATOR));
     } else {
         const message = parts[1].trim();
-    
         addMessage(user, message);
     }
 });
