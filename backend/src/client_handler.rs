@@ -74,6 +74,7 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                         
                 //Get the username from the message
                 let user_info = text.split_once(":").unwrap().1;
+                // TODO this will panic when the login message is invalid
                 let (username, profile_pic) = user_info.split_once("#").unwrap();
                 println!("User login: {username}");
 
@@ -106,7 +107,6 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
 
                 event = Event::Typing(s.values().cloned().filter(|u| u.is_typing()).collect::<Vec<_>>());
             } else {
-                println!("ClientMessage branch");
                 event = Event::ClientMessage((my_name.clone(), message.clone()));
             }
 
@@ -115,7 +115,10 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
             //Send to everyone but my user
             let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != my_addr).collect();
             for key in keys_to_send {
-                s.get(key).unwrap().get_tx().send(event.clone()).unwrap();
+                match s.get(key).unwrap().get_tx().send(event.clone()) {
+                    Ok(_) => {},
+                    Err(e) => println!("Failed to send message to {key}, got {e}"),
+                }
             }
         }
         futures::future::ready(())
