@@ -28,7 +28,6 @@ fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Me
         match event {
             Event::ClientMessage((username, message)) => {
                 future = tx.send(Message::text(format!("{}: {}", username, message.to_string())));
-                println!("Sending {message}");
             },
             Event::ClientLogin((username, users)) => {
                 future = tx.send(Message::text(format!("login:{}:{}", username, get_users_str_from_vec_with_images(users))));

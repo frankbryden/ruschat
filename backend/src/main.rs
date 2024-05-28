@@ -38,15 +38,7 @@ async fn main() -> Result<(), IoError> {
 
     // Let's spawn the handling of each connection in a separate task.
     while let Ok((stream, addr)) = listener.accept().await {
-        println!("New connection, state size: {}", state.lock().unwrap().len());
-        for user in state.lock().unwrap().values() {
-            print!("{}, ", user.get_name());
-        }
-        println!();
         tokio::spawn(client_handler::handle_client(state.clone(), stream, addr));
-        for user in state.lock().unwrap().values() {
-            print!("{}, ", user.get_name());
-        }
         println!("Added connection, state size: {}", state.lock().unwrap().len());
     }
 

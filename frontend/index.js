@@ -5,9 +5,12 @@ const profilePicInput = document.getElementById('profile-picture');
 const profilePicElement = document.getElementById('profile-pic-img');
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-button");
+const imageUploadBtn = document.getElementById("image-upload");
 const chatWindow = document.getElementById("chat-window");
 const userList = document.getElementById('user-list');
 const typingStatusDiv = document.getElementById('typing-status');
+
+const imageRegex = /^image\[(.*?)\]$/m;
 let username = "";
 let profilePicBlob = "";
 let typingTimeout = null;
@@ -30,12 +33,34 @@ function login() {
 function sendMessage() {
     const message = messageInput.value;
     if (message.length > 0) {
-        console.log(`sending ${message}`);
+        console.log(`sending ${message}`); 
         messageInput.value = "";
         addMessage(username, message);
         socket.send(message);
     }
 }
+
+// Function to handle sending an image
+function sendImage() {
+    if (imageUploadBtn.files.length > 0) {
+        const file = imageUploadBtn.files[0];
+        const reader = new FileReader();
+
+        reader.onload = function(event) {
+            const message = `image[${event.target.result}]`;
+            socket.send(message);
+            // Add the image to the chat window
+            addMessage(username, message);
+
+            // Clear the image input
+            imageUploadBtn.value = '';
+
+            // Scroll to bottom
+            scrollToBottom();
+        };
+        reader.readAsDataURL(file);
+    }
+} 
 
 messageInput.onkeydown = event => {
     if (event.key == "Enter") {
@@ -78,13 +103,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function addMessage(user, message){
-    console.log(`Creating message from user: ${user} and contents: ${message}`);
     // Div to hold message
     let messageDiv = document.createElement("div");
     messageDiv.classList.add("message");
 
     //Profile pic
     let profilePicImg = document.createElement("img");
+    profilePicImg.classList.add("profile-pic");
     profilePicImg.src = imagesMapping.get(user) ?? "static/blank-user-profile.png";
 
     //Span to hold username
@@ -92,13 +117,24 @@ function addMessage(user, message){
     userSpan.classList.add("user");
     userSpan.innerText = user + ": ";
 
-    //Add text and user to message div
-    messageDiv.innerText = message;
+    const match = message.match(imageRegex);
+    if (match) {
+        const img = document.createElement("img");
+        img.src = match[1];
+        img.alt = "Sent Image";
+        img.style = "max-width: 200px; border-radius: 8px; margin-top: 5px;";
+
+        const br = document.createElement("br");
+
+        //This is an image
+        messageDiv.insertAdjacentElement("afterbegin", img);
+        messageDiv.insertAdjacentElement("afterbegin", br);
+    } else {
+        //Add text and user to message div
+        messageDiv.innerText = message;
+    }
     messageDiv.insertAdjacentElement("afterbegin", profilePicImg);
     messageDiv.insertAdjacentElement("afterbegin", userSpan);
-
-    console.log(userSpan);
-    console.log(messageDiv);
 
     // Add the result to the chat window
     chatWindow.appendChild(messageDiv);
@@ -180,6 +216,12 @@ function clearUserTyping() {
 sendBtn.onclick = () => {
     sendMessage();
 }
+
+imageUploadBtn.onchange = () => {
+    sendImage();
+}
+
+
 // Connection opened
 socket.addEventListener("open", (event) => {
 });
@@ -205,7 +247,7 @@ socket.addEventListener("message", async (event) => {
     } else if (user == "typing") {
         user_typing_status(parts[1].split(USER_SEPARATOR));
     } else {
-        const message = parts[1].trim();
+        const message = parts.slice(1).join(":").trim();
         addMessage(user, message);
     }
 });
