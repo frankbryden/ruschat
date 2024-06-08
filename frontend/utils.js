@@ -11,10 +11,6 @@ async function load_image(file, size) {
     canvas.width = size
     canvas.height = size
 
-    console.log(file);
-    console.log(file.width);
-    console.log(file.height);
-
     const bitmap = await createImageBitmap(file)
     console.log("Created bitmap:");
     console.log(bitmap);
@@ -35,4 +31,11 @@ async function construct_blob_from_b64(b64) {
     // b64 will look something like "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUA=="
     return fetch(b64)
         .then(res => res.blob());
+}
+
+// Function to get the current time in HH:MM format
+function formatTimestamp(timestamp) {
+    const hours = String(timestamp.getHours()).padStart(2, '0');
+    const minutes = String(timestamp.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
 }

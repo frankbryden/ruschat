@@ -1,6 +1,7 @@
 use std::sync::mpsc::Receiver;
 use std::sync::mpsc;
 use std::net::SocketAddr;
+use std::time::{Duration, SystemTime};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures::{self};
 use tokio::net::TcpStream;
@@ -11,43 +12,11 @@ use std::thread::spawn;
 
 use crate::{PeerMap, ThreadSafeDbHandler};
 use crate::event::{Event, EventKind};
-use crate::user::{User, build_user};
-
-const USER_SEPARATOR: &str = "&";
-
-fn get_users_str_from_vec(users: Vec<User>) -> String {
-    String::from(users.iter().map(|u| u.get_name().clone()).collect::<Vec<String>>().join(USER_SEPARATOR))
-}
-
-fn get_users_str_from_vec_with_images(users: Vec<User>) -> String {
-    String::from(users.iter().map(|u| u.get_name().clone() + "#" + &u.get_profile_pic().clone().unwrap_or_default()).collect::<Vec<String>>().join(USER_SEPARATOR))
-}
+use crate::user::build_user;
 
 fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Message>, other_client_messages_rx: Receiver<Event>, db_handler: ThreadSafeDbHandler) {
     for event in other_client_messages_rx {
-        let future;
-        match event.kind {
-            EventKind::ClientMessage((username, message)) => {
-                future = tx.send(Message::text(format!("{}: {}", username, message.to_string())));
-            },
-            EventKind::ClientLogin((username, users)) => {
-                future = tx.send(Message::text(format!("login:{}:{}", username, get_users_str_from_vec_with_images(users))));
-                println!("Sending login by {username}");
-            },
-            EventKind::ClientLogout((username, users)) => {
-                future = tx.send(Message::text(format!("logout:{}:{}", username, get_users_str_from_vec(users))));
-                println!("Sending logout by {username}");
-            },
-            EventKind::LobbyState(users) => {
-                println!("Sending lobby state with {} users", users.len());
-                future = tx.send(Message::text(format!("lobby:{}", get_users_str_from_vec_with_images(users))));
-            },
-            EventKind::Typing(users) => {
-                println!("Currently got {} users typing", users.len());
-                future = tx.send(Message::text(format!("typing:{}", get_users_str_from_vec(users))));
-            },
-        }
-        futures::executor::block_on(future).unwrap();
+        futures::executor::block_on(tx.send(Message::text(event.to_client_message()))).unwrap();
     }
 }
 
@@ -64,7 +33,7 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
 
             //Convert the message from a Message to a str ref
             let text = message.to_text().unwrap();
-            let event: Event;
+            let event: Option<Event>;
 
             if text.starts_with("user:") {
                 println!("ClientLogin branch");
@@ -88,9 +57,9 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 me.login();
 
                 let sender = me.get_tx().clone();
-                sender.send(Event::new(EventKind::LobbyState(s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>()))).unwrap();
+                sender.send(Event::new(EventKind::LobbyState(s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>()), None)).unwrap();
 
-                event = Event::new(EventKind::ClientLogin((my_name.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())));
+                event = Some(Event::new(EventKind::ClientLogin((my_name.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())), None));
             } else if text.starts_with("typing:") {
                 //Lock the current state
                 let mut s = state.lock().unwrap();
@@ -105,21 +74,35 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                     _ => panic!("Invalid typing state change: {typing_state_change}"),
                 };
 
-                event = Event::new(EventKind::Typing(s.values().cloned().filter(|u| u.is_typing()).collect::<Vec<_>>()));
+                event = Some(Event::new(EventKind::Typing(s.values().cloned().filter(|u| u.is_typing()).collect::<Vec<_>>()), None));
+            } else if text.starts_with("history:") {
+                let timestamp: u64 = text.split_once(":").unwrap().1.parse().unwrap();
+                let db = db_handler.lock().unwrap();
+                let events = db.read_events(SystemTime::UNIX_EPOCH + Duration::from_millis(timestamp), 10);
+
+                let s = state.lock().unwrap();
+                let sender = s.get(&my_addr).unwrap().get_tx();
+                for event in events {
+                    sender.send(event).unwrap();
+                }
+                event = None;
             } else {
-                event = Event::new(EventKind::ClientMessage((my_name.clone(), message.clone())));
+                event = Some(Event::new(EventKind::ClientMessage((my_name.clone(), message.clone())), None));
             }
 
             let mut handle = db_handler.lock().unwrap();
-            handle.record_event(event.clone());
-            //Perform the sending
-            let s = state.lock().unwrap();
-            //Send to everyone but my user
-            let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != my_addr).collect();
-            for key in keys_to_send {
-                match s.get(key).unwrap().get_tx().send(event.clone()) {
-                    Ok(_) => {},
-                    Err(e) => println!("Failed to send message to {key}, got {e}"),
+            if event.is_some() {
+                let event = event.unwrap();
+                handle.record_event(event.clone());
+                //Perform the sending
+                let s = state.lock().unwrap();
+                //Send to everyone but my user
+                let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != my_addr).collect();
+                for key in keys_to_send {
+                    match s.get(key).unwrap().get_tx().send(event.clone()) {
+                        Ok(_) => {},
+                        Err(e) => println!("Failed to send message to {key}, got {e}"),
+                    }
                 }
             }
         }
@@ -136,7 +119,7 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
     s.remove(&my_addr);
     if username.len() > 0 {
         for value in s.values() {
-            value.get_tx().send(Event::new(EventKind::ClientLogout((username.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())))).unwrap();
+            value.get_tx().send(Event::new(EventKind::ClientLogout((username.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())), None)).unwrap();
         }
     }
 

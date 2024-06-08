@@ -16,6 +16,9 @@ let profilePicBlob = "";
 let typingTimeout = null;
 let profilePicDataUrl = ''; // Variable to hold the profile picture data URL
 let imagesMapping = new Map();
+let typing = false;
+let topTimestamp = new Date();
+let botTimestamp = new Date();
 
 const USER_SEPARATOR = "&";
 
@@ -27,7 +30,12 @@ function login() {
         document.querySelector('.login-view').classList.remove('active');
         document.querySelector('.chat-view').classList.add('active');
         socket.send(`user:${username}#${profilePicBlob}`);
+        requestHistory();
     }
+}
+
+function requestHistory() {
+    socket.send(`history:${topTimestamp.getTime()}`);
 }
 
 function sendMessage() {
@@ -35,7 +43,7 @@ function sendMessage() {
     if (message.length > 0) {
         console.log(`sending ${message}`); 
         messageInput.value = "";
-        addMessage(username, message);
+        addMessage(new Date(), username, message);
         socket.send(message);
     }
 }
@@ -102,9 +110,9 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('.login-view').classList.add('active');
 });
 
-function addMessage(user, message){
+function addMessage(timestamp, user, message){
     // Div to hold message
-    let messageDiv = document.createElement("div");
+    const messageDiv = document.createElement("div");
     messageDiv.classList.add("message");
 
     //Profile pic
@@ -131,19 +139,19 @@ function addMessage(user, message){
         messageDiv.insertAdjacentElement("afterbegin", br);
     } else {
         //Add text and user to message div
-        messageDiv.innerText = message;
+        messageDiv.innerHTML = `${message}<span class="timestamp">${formatTimestamp(timestamp)}</span>`;
     }
     messageDiv.insertAdjacentElement("afterbegin", profilePicImg);
     messageDiv.insertAdjacentElement("afterbegin", userSpan);
 
     // Add the result to the chat window
-    chatWindow.appendChild(messageDiv);
+    addContentToChatWindow(messageDiv, timestamp);
 
     // Scroll chat view to the bottom, so users can see new messages as they arrive
     scrollToBottom();
 }
 
-function user_move_message(username, joined = true) {
+function user_move_message(timestamp, username, joined = true) {
     // Show join message
     const joinMessage = document.createElement('div');
     joinMessage.className = 'message join-message';
@@ -152,7 +160,25 @@ function user_move_message(username, joined = true) {
     } else {
         joinMessage.textContent = `${username} left the chat`;
     }
-    chatWindow.appendChild(joinMessage);
+    const timestampSpan = document.createElement('span');
+    timestampSpan.classList.add("timestamp");
+    timestampSpan.innerText = formatTimestamp(timestamp);
+
+    joinMessage.append(timestampSpan);
+
+    addContentToChatWindow(joinMessage, timestamp);
+}
+
+function addContentToChatWindow(node, timestamp) {
+    if (timestamp < topTimestamp) {
+        chatWindow.prepend(node);
+        topTimestamp = timestamp;
+    } else if (timestamp > botTimestamp) {
+        chatWindow.append(node);
+        botTimestamp = timestamp;
+    } else {
+        console.error(`Cannot insert message in the middle of the pile (${topTimestamp} < ${timestamp} < ${botTimestamp})`);
+    }
 }
 
 function user_typing_status(typingUsers) {
@@ -171,12 +197,13 @@ function scrollToBottom() {
 
 async function ingest_images(users) {
     let usernames = [];
+    console.log(users);
     for (let user of users) {
         let parts = user.split("#");
         let username = parts[0];
         usernames.push(username);
         let image = parts[1];
-        if (image.length > 0) {
+        if (image && image.length > 0) {
             const blob = await construct_blob_from_b64(image);
             const url = URL.createObjectURL(blob);
             imagesMapping.set(username, url);
@@ -202,7 +229,10 @@ function userTyping() {
         clearTimeout(typingTimeout);
     }
     typingTimeout = setTimeout(clearUserTyping, CLEAR_USER_TYPING_DELAY_MS);
-    socket.send("typing:start");
+    if (!typing) {
+        typing = true;
+        socket.send("typing:start");
+    }
 }
 
 /**
@@ -210,6 +240,13 @@ function userTyping() {
  */
 function clearUserTyping() {
     socket.send("typing:stop");
+    typingTimeout = null;
+    typing = false;
+}
+
+function handleScrollToTop() {
+    console.log("Top");
+    requestHistory();
 }
 
 
@@ -221,33 +258,39 @@ imageUploadBtn.onchange = () => {
     sendImage();
 }
 
-
 // Connection opened
 socket.addEventListener("open", (event) => {
+});
+
+chatWindow.addEventListener('scroll', function() {
+    if (chatWindow.scrollTop === 0) {
+        handleScrollToTop();
+    }
 });
 
 // Listen for messages
 socket.addEventListener("message", async (event) => {
     const parts = event.data.split(":");
-    const user = parts[0];
+    const timestamp = new Date(parseInt(parts[0]));
+    const user = parts[1];
     if (user == "login") {
-        const users_data = parts.slice(2).join(":").split(USER_SEPARATOR);
-        user_move_message(parts[1], true);
+        const users_data = parts.slice(3).join(":").split(USER_SEPARATOR);
+        user_move_message(timestamp, parts[2], true);
         const usernames = await ingest_images(users_data);
         render_lobby(usernames);
     } else if (user == "logout") {
-        const users_data = parts[2].split(USER_SEPARATOR);
-        user_move_message(parts[1], false);
+        const users_data = parts[3].split(USER_SEPARATOR);
+        user_move_message(timestamp, parts[2], false);
         const usernames = await ingest_images(users_data);
         render_lobby(usernames);
     } else if (user == "lobby") {
-        const users_data = parts.slice(1).join(":").split(USER_SEPARATOR);
+        const users_data = parts.slice(2).join(":").split(USER_SEPARATOR);
         const usernames = await ingest_images(users_data);
         render_lobby(usernames);
     } else if (user == "typing") {
-        user_typing_status(parts[1].split(USER_SEPARATOR));
+        user_typing_status(parts[2].split(USER_SEPARATOR));
     } else {
-        const message = parts.slice(1).join(":").trim();
-        addMessage(user, message);
+        const message = parts.slice(2).join(":").trim();
+        addMessage(timestamp, user, message);
     }
 });

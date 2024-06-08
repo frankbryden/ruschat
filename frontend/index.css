@@ -126,7 +126,7 @@ body {
     margin: 0.5rem 0;
 }
 
-.message .profile-pic{
+.message .profile-pic {
     width: 40px;
     height: 40px;
     border-radius: 50%;
@@ -135,12 +135,25 @@ body {
 
 .message .user {
     font-weight: bold;
+    margin-right: 0.5rem;
+}
+
+.message .timestamp {
+    font-size: 0.75rem;
+    color: #666;
+    margin-left: auto; /* Push the timestamp to the right */
 }
 
 .join-message {
     text-align: center;
     color: #666;
     font-style: italic;
+}
+
+.join-message .timestamp {
+    display: block;
+    font-size: 0.75rem;
+    color: #666;
 }
 
 .typing-status {
