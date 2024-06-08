@@ -58,7 +58,7 @@ function sendImage() {
             const message = `image[${event.target.result}]`;
             socket.send(message);
             // Add the image to the chat window
-            addMessage(username, message);
+            addMessage(new Date(), username, message);
 
             // Clear the image input
             imageUploadBtn.value = '';
@@ -195,7 +195,7 @@ function scrollToBottom() {
     chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
-async function ingest_images(users) {
+async function ingestImages(users) {
     let usernames = [];
     console.log(users);
     for (let user of users) {
@@ -212,7 +212,7 @@ async function ingest_images(users) {
     return usernames;
 }
 
-function render_lobby(users) {
+function renderLobby(users) {
     //Clear lobby
     userList.innerHTML = "";
 
@@ -273,24 +273,23 @@ socket.addEventListener("message", async (event) => {
     const parts = event.data.split(":");
     const timestamp = new Date(parseInt(parts[0]));
     const user = parts[1];
+    let usersData = null;
     if (user == "login") {
-        const users_data = parts.slice(3).join(":").split(USER_SEPARATOR);
         user_move_message(timestamp, parts[2], true);
-        const usernames = await ingest_images(users_data);
-        render_lobby(usernames);
+        usersData = parts.slice(3).join(":").split(USER_SEPARATOR);
     } else if (user == "logout") {
-        const users_data = parts[3].split(USER_SEPARATOR);
         user_move_message(timestamp, parts[2], false);
-        const usernames = await ingest_images(users_data);
-        render_lobby(usernames);
+        usersData = parts[3].split(USER_SEPARATOR);
     } else if (user == "lobby") {
-        const users_data = parts.slice(2).join(":").split(USER_SEPARATOR);
-        const usernames = await ingest_images(users_data);
-        render_lobby(usernames);
+        usersData = parts.slice(2).join(":").split(USER_SEPARATOR);
     } else if (user == "typing") {
         user_typing_status(parts[2].split(USER_SEPARATOR));
     } else {
         const message = parts.slice(2).join(":").trim();
         addMessage(timestamp, user, message);
+    }
+    if (usersData && !(usersData.length == 1 && usersData[0].length == 0)) {
+        const usernames = await ingestImages(usersData);
+        renderLobby(usernames);
     }
 });
