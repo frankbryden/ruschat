@@ -19,16 +19,20 @@ let imagesMapping = new Map();
 let typing = false;
 let topTimestamp = new Date();
 let botTimestamp = new Date();
+let topElement = null;
 
 const USER_SEPARATOR = "&";
 
 const CLEAR_USER_TYPING_DELAY_MS = 1000;
+
+usernameInput.focus();
 
 function login() {
     username = usernameInput.value.trim();
     if (username) {
         document.querySelector('.login-view').classList.remove('active');
         document.querySelector('.chat-view').classList.add('active');
+        messageInput.focus();
         socket.send(`user:${username}#${profilePicBlob}`);
         requestHistory();
     }
@@ -146,12 +150,9 @@ function addMessage(timestamp, user, message){
 
     // Add the result to the chat window
     addContentToChatWindow(messageDiv, timestamp);
-
-    // Scroll chat view to the bottom, so users can see new messages as they arrive
-    scrollToBottom();
 }
 
-function user_move_message(timestamp, username, joined = true) {
+function userMoveMessage(timestamp, username, joined = true) {
     // Show join message
     const joinMessage = document.createElement('div');
     joinMessage.className = 'message join-message';
@@ -172,10 +173,15 @@ function user_move_message(timestamp, username, joined = true) {
 function addContentToChatWindow(node, timestamp) {
     if (timestamp < topTimestamp) {
         chatWindow.prepend(node);
+        if (topElement) {
+            topElement.scrollIntoView();
+        }
         topTimestamp = timestamp;
     } else if (timestamp > botTimestamp) {
         chatWindow.append(node);
         botTimestamp = timestamp;
+        // Scroll chat view to the bottom, so users can see new messages as they arrive
+        scrollToBottom();
     } else {
         console.error(`Cannot insert message in the middle of the pile (${topTimestamp} < ${timestamp} < ${botTimestamp})`);
     }
@@ -245,7 +251,7 @@ function clearUserTyping() {
 }
 
 function handleScrollToTop() {
-    console.log("Top");
+    topElement = chatWindow.children[0];
     requestHistory();
 }
 
@@ -275,10 +281,10 @@ socket.addEventListener("message", async (event) => {
     const user = parts[1];
     let usersData = null;
     if (user == "login") {
-        user_move_message(timestamp, parts[2], true);
+        userMoveMessage(timestamp, parts[2], true);
         usersData = parts.slice(3).join(":").split(USER_SEPARATOR);
     } else if (user == "logout") {
-        user_move_message(timestamp, parts[2], false);
+        userMoveMessage(timestamp, parts[2], false);
         usersData = parts[3].split(USER_SEPARATOR);
     } else if (user == "lobby") {
         usersData = parts.slice(2).join(":").split(USER_SEPARATOR);
