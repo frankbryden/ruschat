@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
-use crate::Event;
+use crate::event::Event;
 
 #[derive(Clone, Debug)]
 pub struct User {

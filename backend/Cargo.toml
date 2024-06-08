@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 tokio-tungstenite = "*"
 tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.31.0", features = ["bundled"] }
 futures-util = "*"
 futures = "*"
