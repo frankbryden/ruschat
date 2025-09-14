@@ -1,26 +1,38 @@
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc;
-use std::net::SocketAddr;
-use std::time::{Duration, SystemTime};
-use futures_util::stream::{SplitSink, SplitStream};
 use futures::{self};
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, StreamExt};
+use std::net::SocketAddr;
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+use std::thread::spawn;
+use std::time::{Duration, SystemTime};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
-use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::WebSocketStream;
-use std::thread::spawn;
 
-use crate::{PeerMap, ThreadSafeDbHandler};
+use crate::emojis::EmojisHolder;
 use crate::event::{Event, EventKind};
 use crate::user::build_user;
+use crate::{PeerMap, ThreadSafeDbHandler};
 
-fn handle_other_client_messages(mut tx: SplitSink<WebSocketStream<TcpStream>, Message>, other_client_messages_rx: Receiver<Event>, db_handler: ThreadSafeDbHandler) {
+fn handle_other_client_messages(
+    mut tx: SplitSink<WebSocketStream<TcpStream>, Message>,
+    other_client_messages_rx: Receiver<Event>,
+    _db_handler: ThreadSafeDbHandler,
+) {
     for event in other_client_messages_rx {
         futures::executor::block_on(tx.send(Message::text(event.to_client_message()))).unwrap();
     }
 }
 
-fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: PeerMap, my_addr: SocketAddr, db_handler: ThreadSafeDbHandler) {
+fn handle_incoming_messages(
+    rx: SplitStream<WebSocketStream<TcpStream>>,
+    state: PeerMap,
+    my_addr: SocketAddr,
+    db_handler: ThreadSafeDbHandler,
+    emojis_holder: Arc<EmojisHolder>,
+) {
     let mut my_name = String::new();
     let future = rx.for_each(|message| {
         let message = match message {
@@ -30,7 +42,6 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
             }
         };
         if message.is_text() {
-
             //Convert the message from a Message to a str ref
             let text = message.to_text().unwrap();
             let event: Option<Event>;
@@ -57,9 +68,28 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 me.login();
 
                 let sender = me.get_tx().clone();
-                sender.send(Event::new(EventKind::LobbyState(s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>()), None)).unwrap();
+                sender
+                    .send(Event::new(
+                        EventKind::LobbyState(
+                            s.values()
+                                .cloned()
+                                .filter(|user| user.is_logged_in())
+                                .collect::<Vec<_>>(),
+                        ),
+                        None,
+                    ))
+                    .unwrap();
 
-                event = Some(Event::new(EventKind::ClientLogin((my_name.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())), None));
+                event = Some(Event::new(
+                    EventKind::ClientLogin((
+                        my_name.clone(),
+                        s.values()
+                            .cloned()
+                            .filter(|user| user.is_logged_in())
+                            .collect::<Vec<_>>(),
+                    )),
+                    None,
+                ));
             } else if text.starts_with("typing:") {
                 //Lock the current state
                 let mut s = state.lock().unwrap();
@@ -74,11 +104,22 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                     _ => panic!("Invalid typing state change: {typing_state_change}"),
                 };
 
-                event = Some(Event::new(EventKind::Typing(s.values().cloned().filter(|u| u.is_typing()).collect::<Vec<_>>()), None));
+                event = Some(Event::new(
+                    EventKind::Typing(
+                        s.values()
+                            .cloned()
+                            .filter(|u| u.is_typing())
+                            .collect::<Vec<_>>(),
+                    ),
+                    None,
+                ));
             } else if text.starts_with("history:") {
                 let timestamp: u64 = text.split_once(":").unwrap().1.parse().unwrap();
                 let db = db_handler.lock().unwrap();
-                let events = db.read_events(SystemTime::UNIX_EPOCH + Duration::from_millis(timestamp), 10);
+                let events = db.read_events(
+                    SystemTime::UNIX_EPOCH + Duration::from_millis(timestamp),
+                    10,
+                );
 
                 let s = state.lock().unwrap();
                 let sender = s.get(&my_addr).unwrap().get_tx();
@@ -86,8 +127,25 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                     sender.send(event).unwrap();
                 }
                 event = None;
+            } else if text.starts_with("emojis:") {
+                let query = text.split_once(":").unwrap().1;
+                let emojis = emojis_holder.query(query);
+                let s = state.lock().unwrap();
+                let sender = s.get(&my_addr).unwrap().get_tx();
+                let response = emojis
+                    .iter()
+                    .map(|(name, url)| format!("{};{}", name, url))
+                    .collect::<Vec<String>>()
+                    .join(":");
+                sender
+                    .send(Event::new(EventKind::EmojiQuery(response), None))
+                    .unwrap();
+                event = None;
             } else {
-                event = Some(Event::new(EventKind::ClientMessage((my_name.clone(), message.clone())), None));
+                event = Some(Event::new(
+                    EventKind::ClientMessage((my_name.clone(), message.clone())),
+                    None,
+                ));
             }
 
             let mut handle = db_handler.lock().unwrap();
@@ -97,10 +155,11 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
                 //Perform the sending
                 let s = state.lock().unwrap();
                 //Send to everyone but my user
-                let keys_to_send: Vec<&SocketAddr> = s.keys().filter(|&&addr| addr != my_addr).collect();
+                let keys_to_send: Vec<&SocketAddr> =
+                    s.keys().filter(|&&addr| addr != my_addr).collect();
                 for key in keys_to_send {
                     match s.get(key).unwrap().get_tx().send(event.clone()) {
-                        Ok(_) => {},
+                        Ok(_) => {}
                         Err(e) => println!("Failed to send message to {key}, got {e}"),
                     }
                 }
@@ -119,28 +178,52 @@ fn handle_incoming_messages(rx: SplitStream<WebSocketStream<TcpStream>>, state: 
     s.remove(&my_addr);
     if username.len() > 0 {
         for value in s.values() {
-            value.get_tx().send(Event::new(EventKind::ClientLogout((username.clone(), s.values().cloned().filter(|user| user.is_logged_in()).collect::<Vec<_>>())), None)).unwrap();
+            value
+                .get_tx()
+                .send(Event::new(
+                    EventKind::ClientLogout((
+                        username.clone(),
+                        s.values()
+                            .cloned()
+                            .filter(|user| user.is_logged_in())
+                            .collect::<Vec<_>>(),
+                    )),
+                    None,
+                ))
+                .unwrap();
         }
     }
 
     println!("Done reading messages, dropped {username}");
 }
 
-pub async fn handle_client(state: PeerMap, stream: TcpStream, addr: SocketAddr, db_handler: ThreadSafeDbHandler) {
+pub async fn handle_client(
+    state: PeerMap,
+    stream: TcpStream,
+    addr: SocketAddr,
+    db_handler: ThreadSafeDbHandler,
+    emojis_holder: Arc<EmojisHolder>,
+) {
     let addr_text = addr.to_string();
     println!("Handling new client {addr_text}");
     let ws_stream = tokio_tungstenite::accept_async(stream)
         .await
         .expect("Error during the websocket handshake occurred");
 
-    let (tx , rx) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
     state.lock().unwrap().insert(addr, build_user(addr, tx));
     let (outgoing, incoming) = ws_stream.split();
     let incoming_db_handler = db_handler.clone();
     let outgoing_db_handler = db_handler.clone();
     spawn(move || {
         // handle_incoming_messages(incoming, state.clone(), addr, db_handler.clone());
-        handle_incoming_messages(incoming, state.clone(), addr, incoming_db_handler);
+        handle_incoming_messages(
+            incoming,
+            state.clone(),
+            addr,
+            incoming_db_handler,
+            emojis_holder,
+        );
     });
     spawn(move || {
         // handle_other_client_messages(outgoing, rx, db_handler.clone());

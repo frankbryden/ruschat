@@ -11,3 +11,6 @@ tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 futures-util = "*"
 futures = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "1.0"
+radix_trie = "0.2"
