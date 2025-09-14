@@ -48,7 +48,6 @@ impl Event {
                 format!("typing:{}", get_users_str_from_vec(users))
             }
             EventKind::EmojiQuery(emojis) => {
-                println!("Sending {} emojis back to the user", emojis.len());
                 format!("emojis:{}", emojis)
             }
         };
